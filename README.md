@@ -65,7 +65,7 @@ Get-FileHash .\dsd-to-excel_v2026.10.06.html -Algorithm SHA256
 
 ## 라이선스
 
-[MIT](LICENSE) — 자유롭게 쓰고 고치고 나눌 수 있습니다. 사용한 라이브러리는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)를 보세요.
+[MIT](LICENSE) - 자유롭게 쓰고 고치고 나눌 수 있습니다. 사용한 라이브러리는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)를 보세요.
 
 ## 직접 고쳐서 빌드하기
 
