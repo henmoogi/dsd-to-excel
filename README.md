@@ -4,6 +4,8 @@ DART 공시파일(`.dsd`)을 엑셀(`.xlsx`)로 한 번에 바꾸고, 재무제�
 
 👉 **바로 쓰기: https://henmoogi.github.io/dsd-to-excel/**
 
+📝 소개 글(사용법·화면): [네이버 블로그](https://blog.naver.com/henmoogi/224433400390) · 휴대폰에서 .dsd를 열어 보려면 [DSD 뷰어](https://github.com/henmoogi/dsd-viewer)
+
 - 설치할 것이 없습니다. 크롬·엣지·웨일 같은 브라우저만 있으면 됩니다.
 - 파일은 **브라우저 안에서만** 처리됩니다. 서버로 보내지 않으며, 한 번 연 뒤에는 인터넷 없이도 동작합니다.
 - 원본 `.dsd`는 읽기만 하고 고치지 않습니다.
