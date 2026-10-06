@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSD 엑셀 변환기</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1f2328; --muted: #656d76; --line: #d0d7de;
+    --accent: #1f6feb; --accent-soft: #e8f0fe; --ok: #1a7f37; --err: #cf222e; --warn: #9a6700;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --card: #161b22; --text: #e6edf3; --muted: #8d96a0; --line: #30363d;
+      --accent: #4493f8; --accent-soft: #1b2a41; --ok: #3fb950; --err: #f85149; --warn: #d29922;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    font-size: 15px; line-height: 1.6;
+  }
+  main { max-width: 1200px; margin: 0 auto; padding: 36px 16px 56px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+  button {
+    font: inherit; font-size: 14px; padding: 6px 14px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--card); color: var(--text);
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { filter: brightness(1.08); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+
+  .drop {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    min-height: 210px; padding: 24px; text-align: center;
+    background: var(--card); border: 2px dashed var(--line); border-radius: 14px;
+    transition: border-color .15s, background .15s;
+  }
+  .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  .drop strong { font-size: 18px; }
+  .drop .hint { color: var(--muted); font-size: 14px; }
+  .drop .btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 4px; }
+  .icon { width: 46px; height: 46px; color: var(--accent); }
+  input[type=file] { display: none; }
+
+  .save { margin-top: 14px; padding: 12px 16px; }
+  .save h2 { font-size: 15px; margin: 0 0 6px; }
+  .save label { display: flex; align-items: center; gap: 8px; margin: 4px 0; flex-wrap: wrap; }
+  .save .dir { color: var(--muted); font-size: 14px; }
+  .save .dir b { color: var(--text); }
+
+  .summary { margin-top: 18px; padding: 12px 16px; display: none; }
+  .summary.show { display: block; }
+  .summary .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .summary .count { font-weight: 600; margin-right: auto; }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 10px; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  td.name { word-break: break-all; }
+  td.st { white-space: nowrap; }
+  tr.ok td.st { color: var(--ok); }
+  tr.err td.st { color: var(--err); }
+  tr.wait td.st, tr.run td.st { color: var(--muted); }
+  td a { color: var(--accent); white-space: nowrap; }
+  .chk { font-size: 13px; color: var(--muted); }
+  .chk.bad { color: var(--err); font-weight: 600; }
+  .chk.warn { color: var(--warn); }
+  .tablewrap { overflow-x: auto; }
+
+  details { margin-top: 24px; padding: 12px 16px; }
+  summary { cursor: pointer; font-weight: 600; }
+  details ul { margin: 10px 0 4px; padding-left: 20px; }
+  details li { margin: 4px 0; }
+  footer { margin-top: 22px; color: var(--muted); font-size: 13px; }
+  .msg { color: var(--warn); font-size: 14px; margin-top: 6px; }
+
+  /* 검증 결과 */
+  .check { margin-top: 18px; padding: 14px 16px; display: none; }
+  .check.show { display: block; }
+  .check h2 { font-size: 16px; margin: 0; }
+  .check .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .check select { font: inherit; font-size: 14px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line);
+                  background: var(--card); color: var(--text); max-width: 100%; flex: 1 1 260px; min-width: 0; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 12px; }
+  .tabs button[aria-selected=true] { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .tabs .n { display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 4px; border-radius: 10px;
+             font-size: 12px; background: var(--line); color: var(--text); }
+  .tabs .n.bad { background: var(--err); color: #fff; }
+  .filters { display: flex; gap: 12px; flex-wrap: wrap; margin: 10px 0 4px; font-size: 14px; color: var(--muted); }
+  .filters label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+  .tabnote { font-size: 13px; color: var(--muted); margin: 4px 0 0; }
+  table.find { min-width: 980px; }
+  table.find td { font-size: 13px; }
+  table.find td:nth-child(3) { min-width: 200px; }
+  table.find td:nth-child(4) { min-width: 100px; }
+  table.find td:nth-child(8) { min-width: 280px; }
+  table.find td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  table.find td.loc { white-space: nowrap; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .badge.불일치 { background: #fde2e1; color: #b42318; }
+  .badge.확인필요 { background: #fff1d6; color: #9a6700; }
+  .badge.단수차이 { background: #eceff3; color: #57606a; }
+  .badge.미확인 { background: #e8eef7; color: #3b5b8c; }
+  @media (prefers-color-scheme: dark) {
+    .badge.불일치 { background: #4a1d1d; color: #ff9b95; }
+    .badge.확인필요 { background: #3d2e0a; color: #e3b341; }
+    .badge.단수차이 { background: #2d333b; color: #adbac7; }
+    .badge.미확인 { background: #1d2b42; color: #9cb8e8; }
+  }
+  .empty { padding: 18px 4px; color: var(--muted); font-size: 14px; }
+  td .linkbtn { border: none; background: none; padding: 0; color: var(--accent); font-size: 14px; text-decoration: underline; cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+  <h1>DSD → 엑셀 변환기</h1>
+  <p class="sub">DART 공시파일(.dsd)을 엑셀로 바꿉니다. 파일은 이 PC 안에서만 처리되고 인터넷으로 보내지 않습니다.</p>
+
+  <div id="drop" class="drop">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 11v6"/><path d="M9.5 14.5 12 17l2.5-2.5"/>
+    </svg>
+    <strong>.dsd 파일이나 폴더를 여기에 끌어다 놓으세요</strong>
+    <span class="hint">여러 개를 한꺼번에 놓으면 차례로 모두 변환합니다. 폴더를 놓으면 안의 .dsd를 모두 찾습니다(하위 폴더 포함).</span>
+    <div class="btns">
+      <button type="button" id="btnFiles">파일 선택</button>
+      <button type="button" id="btnFolder">폴더 선택</button>
+      <button type="button" id="btnSample">예시 파일로 해 보기</button>
+    </div>
+    <span class="hint">예시는 가상의 회사 '샘플전자(주)' 감사보고서입니다. 검증 기능을 볼 수 있게 일부러 틀린 합계 한 곳을 넣었습니다.</span>
+    <input id="pickFiles" type="file" accept=".dsd" multiple>
+    <input id="pickFolder" type="file" webkitdirectory multiple>
+  </div>
+
+  <div class="card save">
+    <h2>저장 방식</h2>
+    <label><input type="radio" name="mode" value="each" checked> 다운로드 폴더에 파일별로 저장</label>
+    <label><input type="radio" name="mode" value="zip"> 다운로드 폴더에 ZIP 하나로 저장 <span class="dir">(한 번에 여러 개를 넣을 때. 하나면 그냥 엑셀로 저장)</span></label>
+    <label id="dirRow"><input type="radio" name="mode" value="dir"> 내가 고른 폴더에 바로 저장
+      <button type="button" id="btnDir">폴더 고르기</button>
+      <span class="dir" id="dirName">아직 고르지 않음</span></label>
+    <div class="msg" id="saveMsg" hidden></div>
+  </div>
+
+  <section class="card summary" id="summary">
+    <div class="row">
+      <span class="count" id="count"></span>
+      <button type="button" id="btnZip" class="primary" disabled>ZIP으로 모두 받기</button>
+      <button type="button" id="btnClear">목록 지우기</button>
+    </div>
+    <div class="bar"><div id="barFill"></div></div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>파일</th><th>상태</th><th>결과</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card check" id="check" aria-label="검증 결과">
+    <div class="head">
+      <h2>검증 결과</h2>
+      <select id="chkFile" aria-label="검증 결과를 볼 파일"></select>
+    </div>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" data-tab="foot" aria-selected="true">합계 검증(풋팅) <span class="n" id="n-foot">0</span></button>
+      <button type="button" role="tab" data-tab="fs" aria-selected="false">재무제표 간 정합성 <span class="n" id="n-fs">0</span></button>
+      <button type="button" role="tab" data-tab="note" aria-selected="false">본문↔주석 대사 <span class="n" id="n-note">0</span></button>
+    </div>
+    <div class="filters" id="filters"></div>
+    <p class="tabnote" id="tabnote"></p>
+    <div class="tablewrap">
+      <table class="find">
+        <thead><tr><th>결과</th><th>위치</th><th>항목</th><th>기준</th><th>기재값</th><th>계산·대사값</th><th>차이</th><th>근거</th></tr></thead>
+        <tbody id="findRows"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="findEmpty" hidden></div>
+  </section>
+
+  <details class="card">
+    <summary>결과 엑셀은 이렇게 나옵니다</summary>
+    <ul>
+      <li>파일 이름: <b>원본이름_변환.xlsx</b>. 저장 위치는 위 '저장 방식'을 따릅니다. '내가 고른 폴더'는 같은 이름이 있으면 (2), (3)을 붙이고 덮어쓰지 않습니다.</li>
+      <li>시트: 목차, 표지, 감사보고서, 재무상태표·손익계산서 등 재무제표별, 주석, 외부감사실시내용.</li>
+      <li>목차 시트에서 시트와 주석 제목을 누르면 그 위치로 갑니다. 각 시트 맨 위 <b>◀ 목차로 돌아가기</b>로 돌아옵니다.</li>
+      <li>변환이 끝나면 이 화면 아래 <b>검증 결과</b>에 파일별로 일치하지 않는 항목이 탭(합계 검증·재무제표 간 정합성·본문↔주석 대사)으로 나옵니다. 위쪽 목록에서 파일을 고르거나 표의 '검증 보기'를 누르세요.</li>
+      <li><b>검증</b> 시트(목차 다음):합계·소계가 맞는지, 기초+증감=기말인지, 재무제표끼리(자산총계=부채와자본총계, 당기순이익, 기말현금, 자본총계) 맞는지, 본문 과목의 금액이 참조한 주석에 있는지를 자동으로 검사합니다. 결과는 불일치·확인필요·단수차이·미확인·일치로 나뉘고, 위치를 누르면 해당 셀로 갑니다. 불일치 셀은 시트에서 연한 빨강으로 칠해집니다. 자동 검사이므로 불일치는 원문과 대조해 확인하세요.</li>
+      <li>주석 시트는 주석 번호별로 행이 묶여 있습니다. 왼쪽 위 <b>1</b>은 제목만, <b>2</b>는 모두 펼치기.</li>
+      <li>표의 숫자는 실제 숫자로 들어갑니다. (1,234)는 -1,234, 12.5%는 0.125, '-'는 0('-'로 표시). 과목 열·날짜·주석번호는 글자로 둡니다.</li>
+      <li>'파일별로 저장'으로 여러 개를 받으면 브라우저가 '여러 파일 다운로드'를 허용할지 물을 수 있습니다. 허용을 누르세요.</li>
+      <li>'내가 고른 폴더'는 크롬·엣지에서 됩니다. 처음 고를 때 브라우저가 폴더 수정 허용을 묻습니다. 원본 폴더를 고르면 원본 옆에 저장됩니다.</li>
+    </ul>
+  </details>
+
+  <footer>
+    <p>DSD 엑셀 변환기 · 버전 __BUILD_DATE__ · 원본 .dsd는 읽기만 하고 고치지 않습니다.</p>
+    <p>개인이 만든 비공식 도구로 금융감독원 DART와 관계가 없습니다. 변환 결과와 자동 검증은 참고자료이므로 업무에 쓸 때는 원문과 대조해 주세요. 사용 결과에 대한 책임은 사용자에게 있습니다.</p>
+    <p>무료(MIT 라이선스) · 엑셀 처리에 JSZip(MIT)·ExcelJS(MIT) 사용 · 소스: <a href="https://github.com/henmoogi/dsd-to-excel">github.com/henmoogi/dsd-to-excel</a></p>
+  </footer>
+</main>
+
+<script>/*__JSZIP__*/</script>
+<script>/*__EXCELJS__*/</script>
+<script id="dsd-core">/*__CORE__*/</script>
+<script>
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  const drop = $("drop"), rows = $("rows");
+  if (typeof DSDCore === "undefined" || typeof ExcelJS === "undefined" || typeof JSZip === "undefined") {
+    drop.innerHTML = "<strong>이 파일은 원본 틀(src/template.html)입니다.</strong>"
+      + "<span class='hint'>변환은 상위 폴더의 DSD엑셀변환.html(빌드된 파일)을 크롬·엣지·웨일로 열어서 하세요.</span>";
+    return;
+  }
+  const results = [];          // {outName, data} — ZIP으로 모두 받기용
+  let total = 0, done = 0, okCount = 0, errCount = 0;
+  let queue = Promise.resolve();
+  let dirHandle = null;
+
+  // ---------------------------------------------------------- 저장 방식
+  const mode = () => document.querySelector("input[name=mode]:checked").value;
+  try {
+    const saved = localStorage.getItem("dsd-save-mode");
+    if (saved === "each" || saved === "zip") document.querySelector(`input[name=mode][value=${saved}]`).checked = true;
+  } catch (e) { /* 저장소를 못 쓰면 기본값 */ }
+  document.querySelectorAll("input[name=mode]").forEach((r) => r.addEventListener("change", () => {
+    try { if (mode() !== "dir") localStorage.setItem("dsd-save-mode", mode()); } catch (e) { /* 무시 */ }
+    if (mode() === "dir" && !dirHandle) pickDir();
+  }));
+  if (!window.showDirectoryPicker) {
+    $("btnDir").disabled = true;
+    document.querySelector("input[value=dir]").disabled = true;
+    $("dirName").textContent = "이 브라우저에서는 지원되지 않음(크롬·엣지에서 가능)";
+  }
+  async function pickDir() {
+    try {
+      dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+      $("dirName").innerHTML = "";
+      const b = document.createElement("b"); b.textContent = dirHandle.name;
+      $("dirName").append("선택: ", b);
+      document.querySelector("input[value=dir]").checked = true;
+      $("saveMsg").hidden = true;
+    } catch (e) {
+      if (!dirHandle) document.querySelector("input[value=each]").checked = true;
+    }
+  }
+  $("btnDir").addEventListener("click", pickDir);
+
+  // ---------------------------------------------------------- 저장 도우미
+  function download(blob, name) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  }
+  async function writeToDir(name, data) {
+    const dot = name.lastIndexOf(".");
+    const base = name.slice(0, dot), ext = name.slice(dot);
+    let candidate = name;
+    for (let n = 2; ; n++) {
+      try { await dirHandle.getFileHandle(candidate); candidate = `${base}(${n})${ext}`; }
+      catch (e) { if (e.name === "NotFoundError") break; throw e; }
+    }
+    const fh = await dirHandle.getFileHandle(candidate, { create: true });
+    const w = await fh.createWritable();
+    await w.write(data);
+    await w.close();
+    return candidate;
+  }
+  function uniqueNames(list) {
+    const seen = new Map();
+    return list.map(({ outName, data }) => {
+      let name = outName, n = seen.get(outName.toLowerCase()) || 0;
+      seen.set(outName.toLowerCase(), n + 1);
+      if (n) name = outName.replace(/\.xlsx$/i, `(${n + 1}).xlsx`);
+      return { name, data };
+    });
+  }
+  async function zipBlob(list) {
+    const z = new JSZip();
+    for (const { name, data } of uniqueNames(list)) z.file(name, data);
+    return z.generateAsync({ type: "blob", compression: "DEFLATE" });
+  }
+  function stamp() {
+    const d = new Date(), p = (x) => String(x).padStart(2, "0");
+    return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+  }
+
+  // ---------------------------------------------------------- 진행 표시
+  function refresh() {
+    $("summary").classList.add("show");
+    const running = done < total;
+    $("count").textContent = running
+      ? `변환 중 ${done} / ${total}`
+      : `완료 ${okCount}개` + (errCount ? ` · 실패 ${errCount}개` : "") + ` (전체 ${total}개)`;
+    $("barFill").style.width = total ? `${Math.round((done / total) * 100)}%` : "0";
+    $("btnZip").disabled = running || results.length < 1;
+  }
+  function addRow(name) {
+    const tr = document.createElement("tr"); tr.className = "wait";
+    const cells = ["name", "st", "res", "dl"].map((c) => { const td = document.createElement("td"); td.className = c; tr.append(td); return td; });
+    cells[0].textContent = name; cells[1].textContent = "대기";
+    rows.append(tr);
+    return { tr, st: cells[1], res: cells[2], dl: cells[3] };
+  }
+
+  // ---------------------------------------------------------- 검증 결과 화면
+  // 검사 종류 → 탭. 일치 항목은 숨기고 나머지만 보여 준다.
+  const CAT = { "세로 합계": "foot", "상위 항목 합계": "foot", "가로 합계": "foot", "증감(기초→기말)": "foot",
+                "재무제표 간": "fs", "본문↔주석": "note" };
+  const TAB_NOTE = {
+    foot: "합계·소계 행, 번호 붙은 상위 항목, 합계 열, 기초+증감=기말을 표마다 다시 더해 본 결과입니다.",
+    fs: "자산총계=부채와자본총계, 당기순이익(손익계산서·현금흐름표·자본변동표·처분계산서), 기말현금, 자본총계, 미처분이익잉여금을 재무제표끼리 맞춰 본 결과입니다.",
+    note: "재무제표 과목에 적힌 주석 번호의 주석(표·문장)에서 같은 금액을 찾아본 결과입니다. '미확인'은 못 찾은 것으로, 대부분 주석이 세부 내역만 보이거나 당기만 표시한 경우입니다.",
+  };
+  const STATUSES = ["불일치", "확인필요", "단수차이", "미확인"];
+  const checkSets = [];            // {name, findings}
+  let curSet = null, curTab = "foot";
+  const shown = new Set(STATUSES);
+  const fmtNum = (v) => (v === null || v === undefined ? "" : typeof v === "number" ? v.toLocaleString("ko-KR", { maximumFractionDigits: 4 }) : String(v));
+
+  function addCheckSet(name, findings) {
+    const id = checkSets.length;
+    checkSets.push({ name, findings });
+    const bad = findings.filter((f) => f.status === "불일치").length;
+    const opt = document.createElement("option");
+    opt.value = String(id);
+    opt.textContent = `${name} — 불일치 ${bad}`;
+    $("chkFile").append(opt);
+    $("check").classList.add("show");
+    if (curSet === null) selectSet(id);   // 처음 변환한 파일은 바로 보여 준다
+    return id;
+  }
+  function selectSet(id) { curSet = id; $("chkFile").value = String(id); renderCheck(); }
+  function renderCheck() {
+    const set = checkSets[curSet];
+    if (!set) return;
+    const byTab = { foot: [], fs: [], note: [] }, okN = { foot: 0, fs: 0, note: 0 };
+    for (const f of set.findings) {
+      const t = CAT[f.kind] || "foot";
+      if (f.status === "일치") okN[t]++; else byTab[t].push(f);
+    }
+    for (const t of Object.keys(byTab)) {
+      const n = $("n-" + t);
+      n.textContent = byTab[t].length;
+      n.className = byTab[t].some((f) => f.status === "불일치") ? "n bad" : "n";
+    }
+    document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === curTab)));
+    const list = byTab[curTab];
+    const fl = $("filters");
+    fl.innerHTML = "";
+    for (const st of STATUSES) {
+      const cnt = list.filter((f) => f.status === st).length;
+      if (!cnt) continue;
+      const lab = document.createElement("label");
+      const cb = document.createElement("input");
+      cb.type = "checkbox"; cb.checked = shown.has(st);
+      cb.addEventListener("change", () => { if (cb.checked) shown.add(st); else shown.delete(st); renderCheck(); });
+      const sp = document.createElement("span"); sp.className = "badge " + st; sp.textContent = st;
+      lab.append(cb, sp, ` ${cnt}`);
+      fl.append(lab);
+    }
+    $("tabnote").textContent = `${TAB_NOTE[curTab]} (일치 ${okN[curTab]}건은 숨김. 위치는 변환된 엑셀의 시트!셀)`;
+    const body = $("findRows");
+    body.innerHTML = "";
+    const vis = list.filter((f) => shown.has(f.status));
+    for (const f of vis) {
+      const tr = document.createElement("tr");
+      const td = (text, cls) => { const x = document.createElement("td"); if (cls) x.className = cls; x.textContent = text; tr.append(x); return x; };
+      const b = document.createElement("span"); b.className = "badge " + f.status; b.textContent = f.status;
+      td("").append(b);
+      td(`${f.sheet}!${f.addr}`, "loc");
+      td(f.item); td(f.basisCol);
+      td(fmtNum(f.stated), "num"); td(fmtNum(f.calc), "num"); td(fmtNum(f.diff), "num");
+      td(f.basis);
+      body.append(tr);
+    }
+    body.closest("table").hidden = !vis.length;
+    const empty = $("findEmpty");
+    empty.hidden = vis.length > 0;
+    empty.textContent = list.length ? "고른 결과 종류에 해당하는 항목이 없습니다."
+      : `이 검사에서는 일치하지 않는 항목이 없습니다. (일치 ${okN[curTab]}건)`;
+  }
+  document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => { curTab = b.dataset.tab; renderCheck(); }));
+  $("chkFile").addEventListener("change", () => selectSet(Number($("chkFile").value)));
+
+  // ---------------------------------------------------------- 변환
+  async function convertOne(file, row) {
+    row.tr.className = "run"; row.st.textContent = "변환 중…";
+    try {
+      const res = await DSDCore.convert(await file.arrayBuffer(), file.name, { JSZip, ExcelJS, DOMParser });
+      const outName = file.name.replace(/\.[^.]+$/, "") + "_변환.xlsx";
+      results.push({ outName, data: res.data });
+      row.tr.className = "ok";
+      row.res.textContent = `시트 ${res.sheets.length}개 · 주석 제목 ${res.notes}개`;
+      if (res.checks) {
+        const c = res.checks, b = document.createElement("div");
+        b.className = c["불일치"] ? "chk bad" : c["확인필요"] ? "chk warn" : "chk";
+        b.textContent = `검증: 불일치 ${c["불일치"]} · 확인필요 ${c["확인필요"]} · 미확인 ${c["미확인"]} · 일치 ${c["일치"]}`;
+        row.res.append(b);
+      }
+      const a = document.createElement("a");
+      a.href = "#"; a.textContent = "받기";
+      a.addEventListener("click", (e) => { e.preventDefault(); download(new Blob([res.data], { type: XLSX_TYPE }), outName); });
+      row.dl.append(a);
+      if (res.checks) {
+        const sid = addCheckSet(file.name, res.findings || []);
+        const v = document.createElement("button");
+        v.type = "button"; v.className = "linkbtn"; v.textContent = "검증 보기";
+        v.addEventListener("click", () => { selectSet(sid); $("check").scrollIntoView({ behavior: "smooth", block: "start" }); });
+        row.dl.append(document.createElement("br"), v);
+      }
+      okCount++;
+      return { outName, data: res.data };
+    } catch (err) {
+      row.tr.className = "err";
+      row.st.textContent = "실패";
+      row.res.textContent = err && err.message ? err.message : String(err);
+      errCount++;
+      console.error(err);
+      return null;
+    } finally {
+      done++;
+      refresh();
+    }
+  }
+
+  /** 한 번 놓거나 고른 파일 묶음을 차례로 변환하고, 저장 방식에 맞게 저장한다. */
+  function enqueue(files, skipped) {
+    const list = files.filter((f) => /\.dsd$/i.test(f.name));
+    const ignored = files.length - list.length + (skipped || 0);
+    if (!list.length) {
+      $("saveMsg").textContent = ignored ? `.dsd 파일이 없습니다(다른 파일 ${ignored}개는 건너뜀).` : ".dsd 파일이 없습니다.";
+      $("saveMsg").hidden = false;
+      return queue;
+    }
+    $("saveMsg").hidden = !ignored;
+    if (ignored) $("saveMsg").textContent = `.dsd가 아닌 파일 ${ignored}개는 건너뛰었습니다.`;
+    const rowsFor = list.map((f) => addRow(f.webkitRelativePath || f.name));
+    total += list.length;
+    refresh();
+    const m = mode();
+    queue = queue.then(async () => {
+      const batch = [];
+      for (let i = 0; i < list.length; i++) {
+        const r = await convertOne(list[i], rowsFor[i]);
+        if (!r) continue;
+        batch.push(r);
+        if (m === "each") {
+          download(new Blob([r.data], { type: XLSX_TYPE }), r.outName);
+          rowsFor[i].st.textContent = "완료 · 다운로드";
+          await new Promise((ok) => setTimeout(ok, 350));   // 여러 개를 연달아 받을 때 브라우저가 막지 않게 간격을 둔다
+        } else if (m === "dir" && dirHandle) {
+          try {
+            const saved = await writeToDir(r.outName, r.data);
+            rowsFor[i].st.textContent = "완료 · 폴더에 저장";
+            rowsFor[i].res.textContent += ` · ${saved}`;
+          } catch (e) {
+            rowsFor[i].st.textContent = "완료 · 저장 실패";
+            rowsFor[i].res.textContent += ` · 폴더에 쓰지 못함(${e.message}). '받기'로 내려받으세요.`;
+          }
+        } else {
+          rowsFor[i].st.textContent = "완료";
+        }
+      }
+      if (m === "zip" && batch.length === 1) {
+        download(new Blob([batch[0].data], { type: XLSX_TYPE }), batch[0].outName);
+      } else if (m === "zip" && batch.length > 1) {
+        download(await zipBlob(batch), `DSD변환_${stamp()}_${batch.length}개.zip`);
+      } else if (m === "dir" && !dirHandle) {
+        $("saveMsg").textContent = "저장할 폴더를 고르지 않아 저장하지 않았습니다. '폴더 고르기' 후 다시 넣거나, 표의 '받기'를 누르세요.";
+        $("saveMsg").hidden = false;
+      }
+    });
+    return queue;
+  }
+  window.__test = { enqueue, setDir: (h) => { dirHandle = h; }, results };   // 자동 시험용
+
+  // ---------------------------------------------------------- 파일·폴더 받기
+  async function readEntry(entry, out) {
+    if (entry.isFile) {
+      out.push(await new Promise((ok, no) => entry.file(ok, no)));
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      for (;;) {
+        const batch = await new Promise((ok, no) => reader.readEntries(ok, no));
+        if (!batch.length) break;
+        for (const e of batch) await readEntry(e, out);
+      }
+    }
+  }
+  function showMsg(text) { $("saveMsg").textContent = text; $("saveMsg").hidden = false; }
+
+  /** 끌어다 놓은 항목을 drop 이벤트 안에서 바로 붙잡는다(이벤트가 끝나면 목록이 비워진다).
+   *  파일은 그대로 쓰고, 폴더만 FileSystem 항목으로 읽는다. 로컬 파일(file://)로 연 화면에서는
+   *  브라우저가 폴더 읽기를 막는 경우가 있어, 그때는 안내만 하고 파일 처리는 계속한다. */
+  function grabDrop(dt) {
+    const items = dt.items ? [...dt.items].filter((i) => i.kind === "file") : [];
+    if (!items.length) return [...(dt.files || [])].map((f) => ({ file: f }));
+    const out = [];
+    for (const it of items) {
+      let entry = null;
+      try { entry = it.webkitGetAsEntry ? it.webkitGetAsEntry() : null; } catch (e) { entry = null; }
+      if (entry && entry.isDirectory) { out.push({ dir: entry, name: entry.name }); continue; }
+      const f = it.getAsFile();
+      if (f) out.push({ file: f });
+    }
+    return out;
+  }
+  async function collect(grabbed) {
+    const files = [], failedDirs = [];
+    for (const g of grabbed) {
+      if (g.file) { files.push(g.file); continue; }
+      try { const got = []; await readEntry(g.dir, got); files.push(...got); }
+      catch (e) { failedDirs.push(g.name); console.error(e); }
+    }
+    return { files, failedDirs };
+  }
+
+  $("btnFiles").addEventListener("click", () => $("pickFiles").click());
+  $("btnFolder").addEventListener("click", () => $("pickFolder").click());
+  // 예시 파일(가상 회사 감사보고서)은 빌드할 때 파일 안에 넣는다(인터넷 없이 동작).
+  const SAMPLE_B64 = "__SAMPLE_B64__";
+  $("btnSample").addEventListener("click", () => {
+    const bin = atob(SAMPLE_B64);
+    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    enqueue([new File([bytes], "샘플전자_감사보고서_2025_예시.dsd")]);
+  });
+  $("pickFiles").addEventListener("change", (e) => { enqueue([...e.target.files]); e.target.value = ""; });
+  $("pickFolder").addEventListener("change", (e) => { enqueue([...e.target.files]); e.target.value = ""; });
+
+  let depth = 0;
+  window.addEventListener("dragenter", (e) => { e.preventDefault(); depth++; drop.classList.add("over"); });
+  window.addEventListener("dragleave", () => { if (--depth <= 0) { depth = 0; drop.classList.remove("over"); } });
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => {   // 화면 어디에 놓아도 받는다
+    e.preventDefault(); depth = 0; drop.classList.remove("over");
+    let grabbed;
+    try { grabbed = grabDrop(e.dataTransfer); } catch (err) { showMsg("끌어다 놓은 파일을 받지 못했습니다: " + err.message); return; }
+    collect(grabbed).then(({ files, failedDirs }) => {
+      if (files.length) enqueue(files);
+      if (failedDirs.length) {
+        showMsg(`폴더(${failedDirs.join(", ")})는 브라우저 보안 때문에 끌어다 놓기로 읽지 못했습니다. `
+          + "[폴더 선택] 단추로 고르거나, 폴더 안의 .dsd 파일들을 선택해서 끌어다 놓으세요.");
+      } else if (!files.length) {
+        showMsg("끌어다 놓은 것 중에 파일이 없습니다.");
+      }
+    }).catch((err) => showMsg("끌어다 놓은 파일을 받지 못했습니다: " + err.message));
+  });
+  // 예상하지 못한 오류도 화면에 보이게 한다(조용히 멈추지 않게)
+  window.addEventListener("unhandledrejection", (e) => showMsg("오류: " + (e.reason && e.reason.message ? e.reason.message : String(e.reason))));
+  window.addEventListener("error", (e) => showMsg("오류: " + e.message));
+
+  $("btnZip").addEventListener("click", async () => {
+    if (!results.length) return;
+    if (results.length === 1) return download(new Blob([results[0].data], { type: XLSX_TYPE }), results[0].outName);
+    download(await zipBlob(results), `DSD변환_${stamp()}_${results.length}개.zip`);
+  });
+  $("btnClear").addEventListener("click", () => {
+    if (done < total) return;
+    rows.innerHTML = ""; results.length = 0; total = done = okCount = errCount = 0;
+    $("summary").classList.remove("show"); $("saveMsg").hidden = true;
+    checkSets.length = 0; curSet = null; $("chkFile").innerHTML = ""; $("check").classList.remove("show");
+  });
+})();
+</script>
+</body>
+</html>
