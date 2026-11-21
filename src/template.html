@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DSD 엑셀 변환기</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%231f6feb'/%3E%3Cpath d='M4 4h8M4 8h8M4 12h5' stroke='white' stroke-width='1.6'/%3E%3C/svg%3E">
 <style>
   :root {
     --bg: #f6f7f9; --card: #ffffff; --text: #1f2328; --muted: #656d76; --line: #d0d7de;
@@ -96,7 +97,8 @@
   .tabs .n.bad { background: var(--err); color: #fff; }
   .filters { display: flex; gap: 12px; flex-wrap: wrap; margin: 10px 0 4px; font-size: 14px; color: var(--muted); }
   .filters label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
-  .tabnote { font-size: 13px; color: var(--muted); margin: 4px 0 0; }
+  .tabnote { font-size: 13px; color: var(--muted); margin: 4px 0 0; white-space: pre-line; }
+  table.find th { white-space: nowrap; }
   table.find { min-width: 980px; }
   table.find td { font-size: 13px; }
   table.find td:nth-child(3) { min-width: 200px; }
@@ -129,13 +131,14 @@
       <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 11v6"/><path d="M9.5 14.5 12 17l2.5-2.5"/>
     </svg>
     <strong>.dsd 파일이나 폴더를 여기에 끌어다 놓으세요</strong>
-    <span class="hint">여러 개를 한꺼번에 놓으면 차례로 모두 변환합니다. 폴더를 놓으면 안의 .dsd를 모두 찾습니다(하위 폴더 포함).</span>
+    <span class="hint">여러 개를 한꺼번에 놓으면 차례로 모두 변환합니다. 폴더를 놓으면 안의 .dsd를 모두 찾습니다(하위 폴더 포함).<br>같은 회사의 올해·작년 감사보고서를 함께 놓으면 올해 전기 칸과 작년 당기 칸을 맞춰 보는 <b>전기 대사</b>도 합니다.</span>
     <div class="btns">
       <button type="button" id="btnFiles">파일 선택</button>
       <button type="button" id="btnFolder">폴더 선택</button>
       <button type="button" id="btnSample">예시 파일로 해 보기</button>
+      <button type="button" id="btnSamplePair">예시로 전기 대사 해 보기</button>
     </div>
-    <span class="hint">예시는 가상의 회사 '샘플전자(주)' 감사보고서입니다. 검증 기능을 볼 수 있게 일부러 틀린 합계 한 곳을 넣었습니다.</span>
+    <span class="hint">예시는 가상의 회사 '샘플전자(주)' 감사보고서입니다. 검증 기능을 볼 수 있게 일부러 틀린 합계 한 곳을 넣었습니다.<br>'전기 대사' 예시는 같은 회사의 2024년·2025년 보고서 두 개를 함께 넣습니다. 현금 주석의 전기 칸 한 곳을 일부러 다르게 넣었습니다.</span>
     <input id="pickFiles" type="file" accept=".dsd" multiple>
     <input id="pickFolder" type="file" webkitdirectory multiple>
   </div>
@@ -174,12 +177,13 @@
       <button type="button" role="tab" data-tab="foot" aria-selected="true">합계 검증(풋팅) <span class="n" id="n-foot">0</span></button>
       <button type="button" role="tab" data-tab="fs" aria-selected="false">재무제표 간 정합성 <span class="n" id="n-fs">0</span></button>
       <button type="button" role="tab" data-tab="note" aria-selected="false">본문↔주석 대사 <span class="n" id="n-note">0</span></button>
+      <button type="button" role="tab" data-tab="prior" aria-selected="false">전기 대사 <span class="n" id="n-prior">-</span></button>
     </div>
     <div class="filters" id="filters"></div>
     <p class="tabnote" id="tabnote"></p>
     <div class="tablewrap">
       <table class="find">
-        <thead><tr><th>결과</th><th>위치</th><th>항목</th><th>기준</th><th>기재값</th><th>계산·대사값</th><th>차이</th><th>근거</th></tr></thead>
+        <thead><tr><th>결과</th><th>위치</th><th>항목</th><th>기준</th><th id="th-stated">기재값</th><th id="th-calc">계산·대사값</th><th>차이</th><th>근거</th></tr></thead>
         <tbody id="findRows"></tbody>
       </table>
     </div>
@@ -194,6 +198,7 @@
       <li>목차 시트에서 시트와 주석 제목을 누르면 그 위치로 갑니다. 각 시트 맨 위 <b>◀ 목차로 돌아가기</b>로 돌아옵니다.</li>
       <li>변환이 끝나면 이 화면 아래 <b>검증 결과</b>에 파일별로 일치하지 않는 항목이 탭(합계 검증·재무제표 간 정합성·본문↔주석 대사)으로 나옵니다. 위쪽 목록에서 파일을 고르거나 표의 '검증 보기'를 누르세요.</li>
       <li><b>검증</b> 시트(목차 다음):합계·소계가 맞는지, 기초+증감=기말인지, 재무제표끼리(자산총계=부채와자본총계, 당기순이익, 기말현금, 자본총계) 맞는지, 본문 과목의 금액이 참조한 주석에 있는지를 자동으로 검사합니다. 결과는 불일치·확인필요·단수차이·미확인·일치로 나뉘고, 위치를 누르면 해당 셀로 갑니다. 불일치 셀은 시트에서 연한 빨강으로 칠해집니다. 자동 검사이므로 불일치는 원문과 대조해 확인하세요.</li>
+      <li><b>전기 대사</b>: 같은 회사의 올해·작년 감사보고서를 한 번에 넣으면(함께 끌어다 놓기·함께 선택·같은 폴더) 회사 이름과 기간으로 짝을 지어, 올해 보고서의 전기 칸과 작년 보고서의 당기 칸을 표마다(재무제표·주석) 비교합니다. 결과는 위 검증 결과의 '전기 대사' 탭과 올해 파일 '검증' 시트 아래쪽에 나오고, 차이 칸은 연한 빨강으로 칠합니다. 재분류·재작성으로 일부러 바꾼 숫자도 차이로 나오니 원문과 대조하세요. 반기·분기 검토보고서는 짝짓지 않습니다.</li>
       <li>주석 시트는 주석 번호별로 행이 묶여 있습니다. 왼쪽 위 <b>1</b>은 제목만, <b>2</b>는 모두 펼치기.</li>
       <li>표의 숫자는 실제 숫자로 들어갑니다. (1,234)는 -1,234, 12.5%는 0.125, '-'는 0('-'로 표시). 과목 열·날짜·주석번호는 글자로 둡니다.</li>
       <li>'파일별로 저장'으로 여러 개를 받으면 브라우저가 '여러 파일 다운로드'를 허용할지 물을 수 있습니다. 허용을 누르세요.</li>
@@ -222,7 +227,7 @@
       + "<span class='hint'>변환은 상위 폴더의 DSD엑셀변환.html(빌드된 파일)을 크롬·엣지·웨일로 열어서 하세요.</span>";
     return;
   }
-  const results = [];          // {outName, data} — ZIP으로 모두 받기용
+  const results = [];          // {outName, data}: ZIP으로 모두 받기용
   let total = 0, done = 0, okCount = 0, errCount = 0;
   let queue = Promise.resolve();
   let dirHandle = null;
@@ -324,18 +329,24 @@
     note: "재무제표 과목에 적힌 주석 번호의 주석(표·문장)에서 같은 금액을 찾아본 결과입니다. '미확인'은 못 찾은 것으로, 대부분 주석이 세부 내역만 보이거나 당기만 표시한 경우입니다.",
   };
   const STATUSES = ["불일치", "확인필요", "단수차이", "미확인"];
-  const checkSets = [];            // {name, findings}
+  const P_STATUSES = ["차이", "단수차이", "작년에 없던 행", "빠진 행", "이름 바뀐 행", "표 못 찾음", "기간 표시 없음"];
+  const BADGE = { "불일치": "불일치", "확인필요": "확인필요", "단수차이": "단수차이", "미확인": "미확인",   // 결과 → 배지 색
+                  "차이": "불일치", "작년에 없던 행": "확인필요", "빠진 행": "확인필요", "이름 바뀐 행": "미확인",
+                  "표 못 찾음": "미확인", "기간 표시 없음": "단수차이" };
+  const badgeClass = (st) => "badge " + (BADGE[st] || "단수차이");
+  const PRIOR_HOW = "같은 회사의 작년 감사보고서를 함께 넣으면(한 번에 끌어다 놓기·함께 선택) 올해 보고서의 전기 칸과 작년 보고서의 당기 칸을 표마다 비교합니다.";
+  const checkSets = [];            // {name, findings, prior, pairNote}
   let curSet = null, curTab = "foot";
-  const shown = new Set(STATUSES);
+  const shown = new Set(STATUSES.concat(P_STATUSES));
   const fmtNum = (v) => (v === null || v === undefined ? "" : typeof v === "number" ? v.toLocaleString("ko-KR", { maximumFractionDigits: 4 }) : String(v));
 
-  function addCheckSet(name, findings) {
+  function addCheckSet(name, findings, prior, pairNote) {
     const id = checkSets.length;
-    checkSets.push({ name, findings });
+    checkSets.push({ name, findings, prior: prior || null, pairNote: pairNote || null });
     const bad = findings.filter((f) => f.status === "불일치").length;
     const opt = document.createElement("option");
     opt.value = String(id);
-    opt.textContent = `${name} — 불일치 ${bad}`;
+    opt.textContent = `${name} - 불일치 ${bad}` + (prior ? ` · 전기 대사 차이 ${prior.counts["차이"]}` : "");
     $("chkFile").append(opt);
     $("check").classList.add("show");
     if (curSet === null) selectSet(id);   // 처음 변환한 파일은 바로 보여 준다
@@ -350,37 +361,45 @@
       const t = CAT[f.kind] || "foot";
       if (f.status === "일치") okN[t]++; else byTab[t].push(f);
     }
+    const pr = set.prior;
+    byTab.prior = pr ? pr.items.filter((f) => f.status !== "일치") : [];
+    okN.prior = pr ? pr.counts["일치"] : 0;
     for (const t of Object.keys(byTab)) {
       const n = $("n-" + t);
-      n.textContent = byTab[t].length;
-      n.className = byTab[t].some((f) => f.status === "불일치") ? "n bad" : "n";
+      n.textContent = t === "prior" && !pr ? "-" : byTab[t].length;
+      n.className = byTab[t].some((f) => f.status === "불일치" || f.status === "차이") ? "n bad" : "n";
     }
     document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === curTab)));
+    const isPrior = curTab === "prior";
+    $("th-stated").textContent = isPrior ? "올해 전기" : "기재값";
+    $("th-calc").textContent = isPrior ? "작년 당기" : "계산·대사값";
     const list = byTab[curTab];
     const fl = $("filters");
     fl.innerHTML = "";
-    for (const st of STATUSES) {
+    for (const st of isPrior ? P_STATUSES : STATUSES) {
       const cnt = list.filter((f) => f.status === st).length;
       if (!cnt) continue;
       const lab = document.createElement("label");
       const cb = document.createElement("input");
       cb.type = "checkbox"; cb.checked = shown.has(st);
       cb.addEventListener("change", () => { if (cb.checked) shown.add(st); else shown.delete(st); renderCheck(); });
-      const sp = document.createElement("span"); sp.className = "badge " + st; sp.textContent = st;
+      const sp = document.createElement("span"); sp.className = badgeClass(st); sp.textContent = st;
       lab.append(cb, sp, ` ${cnt}`);
       fl.append(lab);
     }
-    $("tabnote").textContent = `${TAB_NOTE[curTab]} (일치 ${okN[curTab]}건은 숨김. 위치는 변환된 엑셀의 시트!셀)`;
+    $("tabnote").textContent = !isPrior ? `${TAB_NOTE[curTab]} (일치 ${okN[curTab]}건은 숨김. 위치는 변환된 엑셀의 시트!셀)`
+      : pr ? `작년 보고서: ${pr.priorName}\n${pr.sentence}\n${pr.rowsLine}\n${pr.note} (일치 ${okN.prior}칸은 숨김. 위치는 올해 엑셀의 시트!셀, '(작년)'은 작년 엑셀)`
+      : (set.pairNote ? set.pairNote + " " : "") + PRIOR_HOW;
     const body = $("findRows");
     body.innerHTML = "";
     const vis = list.filter((f) => shown.has(f.status));
     for (const f of vis) {
       const tr = document.createElement("tr");
       const td = (text, cls) => { const x = document.createElement("td"); if (cls) x.className = cls; x.textContent = text; tr.append(x); return x; };
-      const b = document.createElement("span"); b.className = "badge " + f.status; b.textContent = f.status;
+      const b = document.createElement("span"); b.className = badgeClass(f.status); b.textContent = f.status;
       td("").append(b);
-      td(`${f.sheet}!${f.addr}`, "loc");
-      td(f.item); td(f.basisCol);
+      td((isPrior && !f.mine ? "(작년) " : "") + `${f.sheet}!${f.addr}`, "loc");
+      td(isPrior ? `${f.table} › ${f.item}` : f.item); td(f.basisCol);
       td(fmtNum(f.stated), "num"); td(fmtNum(f.calc), "num"); td(fmtNum(f.diff), "num");
       td(f.basis);
       body.append(tr);
@@ -388,17 +407,19 @@
     body.closest("table").hidden = !vis.length;
     const empty = $("findEmpty");
     empty.hidden = vis.length > 0;
-    empty.textContent = list.length ? "고른 결과 종류에 해당하는 항목이 없습니다."
+    empty.textContent = isPrior && !pr ? "이 파일은 짝이 되는 작년 보고서가 없어 전기 대사를 하지 않았습니다."
+      : list.length ? "고른 결과 종류에 해당하는 항목이 없습니다."
+      : isPrior ? `전기 칸과 작년 당기 칸이 모두 같습니다. (일치 ${okN.prior}칸)`
       : `이 검사에서는 일치하지 않는 항목이 없습니다. (일치 ${okN[curTab]}건)`;
   }
   document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => { curTab = b.dataset.tab; renderCheck(); }));
   $("chkFile").addEventListener("change", () => selectSet(Number($("chkFile").value)));
 
   // ---------------------------------------------------------- 변환
-  async function convertOne(file, row) {
-    row.tr.className = "run"; row.st.textContent = "변환 중…";
+  /** 변환 결과(또는 오류)를 결과 표 한 줄에 보여 준다. */
+  function showResult(file, row, res, err) {
     try {
-      const res = await DSDCore.convert(await file.arrayBuffer(), file.name, { JSZip, ExcelJS, DOMParser });
+      if (err) throw err;
       const outName = file.name.replace(/\.[^.]+$/, "") + "_변환.xlsx";
       results.push({ outName, data: res.data });
       row.tr.className = "ok";
@@ -409,12 +430,18 @@
         b.textContent = `검증: 불일치 ${c["불일치"]} · 확인필요 ${c["확인필요"]} · 미확인 ${c["미확인"]} · 일치 ${c["일치"]}`;
         row.res.append(b);
       }
+      if (res.prior || res.pairNote) {
+        const p = res.prior, b = document.createElement("div");
+        b.className = p && p.counts["차이"] ? "chk bad" : p ? "chk" : "chk warn";
+        b.textContent = p ? `전기 대사(작년: ${res.priorName}): 표 ${p.counts.tables}개 · 숫자 ${p.counts.cells}칸 · 차이 ${p.counts["차이"]}` : res.pairNote;
+        row.res.append(b);
+      }
       const a = document.createElement("a");
       a.href = "#"; a.textContent = "받기";
       a.addEventListener("click", (e) => { e.preventDefault(); download(new Blob([res.data], { type: XLSX_TYPE }), outName); });
       row.dl.append(a);
       if (res.checks) {
-        const sid = addCheckSet(file.name, res.findings || []);
+        const sid = addCheckSet(file.name, res.findings || [], res.prior, res.pairNote);
         const v = document.createElement("button");
         v.type = "button"; v.className = "linkbtn"; v.textContent = "검증 보기";
         v.addEventListener("click", () => { selectSet(sid); $("check").scrollIntoView({ behavior: "smooth", block: "start" }); });
@@ -452,27 +479,32 @@
     const m = mode();
     queue = queue.then(async () => {
       const batch = [];
-      for (let i = 0; i < list.length; i++) {
-        const r = await convertOne(list[i], rowsFor[i]);
-        if (!r) continue;
-        batch.push(r);
-        if (m === "each") {
-          download(new Blob([r.data], { type: XLSX_TYPE }), r.outName);
-          rowsFor[i].st.textContent = "완료 · 다운로드";
-          await new Promise((ok) => setTimeout(ok, 350));   // 여러 개를 연달아 받을 때 브라우저가 막지 않게 간격을 둔다
-        } else if (m === "dir" && dirHandle) {
-          try {
-            const saved = await writeToDir(r.outName, r.data);
-            rowsFor[i].st.textContent = "완료 · 폴더에 저장";
-            rowsFor[i].res.textContent += ` · ${saved}`;
-          } catch (e) {
-            rowsFor[i].st.textContent = "완료 · 저장 실패";
-            rowsFor[i].res.textContent += ` · 폴더에 쓰지 못함(${e.message}). '받기'로 내려받으세요.`;
+      rowsFor.forEach((r) => { r.st.textContent = "확인 중"; });   // 먼저 묶음 전체를 훑어 같은 회사의 작년 보고서를 찾는다
+      const items = list.map((f) => ({ name: f.name, read: () => f.arrayBuffer() }));
+      await DSDCore.convertAll(items, { JSZip, ExcelJS, DOMParser }, {
+        onStart: (i) => { rowsFor[i].tr.className = "run"; rowsFor[i].st.textContent = "변환 중…"; },
+        onDone: async (i, res, err) => {
+          const r = showResult(list[i], rowsFor[i], res, err);
+          if (!r) return;
+          batch.push(r);
+          if (m === "each") {
+            download(new Blob([r.data], { type: XLSX_TYPE }), r.outName);
+            rowsFor[i].st.textContent = "완료 · 다운로드";
+            await new Promise((ok) => setTimeout(ok, 350));   // 여러 개를 연달아 받을 때 브라우저가 막지 않게 간격을 둔다
+          } else if (m === "dir" && dirHandle) {
+            try {
+              const saved = await writeToDir(r.outName, r.data);
+              rowsFor[i].st.textContent = "완료 · 폴더에 저장";
+              rowsFor[i].res.append(` · ${saved}`);
+            } catch (e) {
+              rowsFor[i].st.textContent = "완료 · 저장 실패";
+              rowsFor[i].res.append(` · 폴더에 쓰지 못함(${e.message}). '받기'로 내려받으세요.`);
+            }
+          } else {
+            rowsFor[i].st.textContent = "완료";
           }
-        } else {
-          rowsFor[i].st.textContent = "완료";
-        }
-      }
+        },
+      });
       if (m === "zip" && batch.length === 1) {
         download(new Blob([batch[0].data], { type: XLSX_TYPE }), batch[0].outName);
       } else if (m === "zip" && batch.length > 1) {
@@ -531,10 +563,13 @@
   $("btnFolder").addEventListener("click", () => $("pickFolder").click());
   // 예시 파일(가상 회사 감사보고서)은 빌드할 때 파일 안에 넣는다(인터넷 없이 동작).
   const SAMPLE_B64 = "__SAMPLE_B64__";
+  const SAMPLE24_B64 = "__SAMPLE24_B64__";   // 같은 회사의 작년(2024년) 보고서: 전기 대사 예시용
+  const sampleFile = (b64, name) => new File([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], name);
   $("btnSample").addEventListener("click", () => {
-    const bin = atob(SAMPLE_B64);
-    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-    enqueue([new File([bytes], "샘플전자_감사보고서_2025_예시.dsd")]);
+    enqueue([sampleFile(SAMPLE_B64, "샘플전자_감사보고서_2025_예시.dsd")]);
+  });
+  $("btnSamplePair").addEventListener("click", () => {
+    enqueue([sampleFile(SAMPLE_B64, "샘플전자_감사보고서_2025_예시.dsd"), sampleFile(SAMPLE24_B64, "샘플전자_감사보고서_2024_예시.dsd")]);
   });
   $("pickFiles").addEventListener("change", (e) => { enqueue([...e.target.files]); e.target.value = ""; });
   $("pickFolder").addEventListener("change", (e) => { enqueue([...e.target.files]); e.target.value = ""; });

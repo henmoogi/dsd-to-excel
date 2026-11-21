@@ -133,13 +133,20 @@
       this.ws = ws;
       this.row = 3;             // 1행: 목차로 돌아가기 링크, 2행: 빈 줄
       this.colPx = new Map();   // 열 번호 → 표에서 본 최대 폭(px)
-      this.paragraphs = [];     // [행, 글자] — 나중에 셀 합치기·높이 계산
+      this.paragraphs = [];     // [행, 글자]: 나중에 셀 합치기·높이 계산
       this.blank = true;        // 직전 행이 빈 줄인지
       this.freeze = null;       // [xSplit, ySplit]
       this.maxRow = 0;
       this.used = false;
       this.unit = null;         // 마지막으로 본 '(단위: …)'
-      this.tables = [];         // 검증용 표 구조: {sheet, top, unit, aclass, bordered, rows:[{r, head, cells:[{c,cs,rs,text,value,prec,head}]}]}
+      this.tables = [];         // 검증용 표 구조: {sheet, top, unit, aclass, bordered, pre, rows:[{r, head, cells:[{c,cs,rs,text,value,prec,head}]}]}
+      this.recent = [];         // 마지막 숫자 표 뒤에 나온 짧은 글(제목·문단 줄·숫자 없는 표). 전기 대사에서 표의 기간(<당기>·<전기>)을 찾는 데 쓴다
+    }
+
+    remember(text) {
+      if (!text) return;
+      this.recent.push(text);
+      if (this.recent.length > 8) this.recent.shift();
     }
 
     cellAt(r, c) {
@@ -167,6 +174,7 @@
       this.gap();
       const c = this.put(this.row, 1, text);
       c.font = big ? F_TITLE : F_BOLD;
+      this.remember(text);
       this.row += 1;
       this.blank = false;
       return this.row - 1;
@@ -180,6 +188,7 @@
       const c = this.put(this.row, 1, text);
       c.font = bold ? F_BOLD : F_NORMAL;
       this.paragraphs.push([this.row, text]);
+      this.remember(text);
       this.row += 1;
       this.blank = false;
       return this.row - 1;
@@ -251,6 +260,9 @@
       });
       if (last === null) last = top;
       if (model.ownUnit) { model.unit = model.ownUnit; this.unit = model.ownUnit; }   // 재무제표는 머리 표에 단위가 있다
+      model.pre = this.recent.slice();   // 표 앞 글(가까운 것이 끝)
+      if (model.rows.some((rw) => rw.cells.some((x) => x.value !== null))) this.recent = [];
+      else this.remember(model.rows.map((rw) => rw.cells.map((x) => x.text).filter(Boolean).join(" ")).filter(Boolean).join(" / ").slice(0, 200));
       this.tables.push(model);
       const isFs =attr(tbl, "ACLASS") === "FINANCE" || (bordered && FS_NAME_RE.test(this.ws.name.replace(/\(\d+\)$/, "")));
       if (isFs && this.freeze === null && bodyStart && bodyStart > top) this.freeze = [1, bodyStart - 1];
@@ -433,7 +445,8 @@
       ws.views = [{ showGridLines: false }];
     }
 
-    run(srcName, now) {
+    /** 1단계: 본문을 시트에 쓰고 주석 목차·행 묶음까지 마친다(검증·목차 전). */
+    prepare() {
       const body = elems(this.root).find((x) => x.nodeName === "BODY");
       this.walk(body || this.root);
       const notes = this.noteIndex();
@@ -445,16 +458,37 @@
           w.finish(notes.filter((n) => n[0] === w.ws.name).map((n) => n[1]));
         }
       }
+      this.noteList = notes;
+      this.tables = [].concat(...this.writers.map((w) => w.tables));
+      this.paras = [].concat(...this.writers.map((w) => w.paragraphs.map(([r, text]) => ({ sheet: w.ws.name, r, text }))));
+    }
+
+    /** 다른 보고서의 전기 대사에 넘길 표 정보(워크북 참조는 뺀다). */
+    snapshot(srcName) {
+      return { name: srcName, info: this.info, notes: this.noteList, paras: this.paras,
+               tables: this.tables.map(({ writer, ...rest }) => rest) };
+    }
+
+    /** 2단계: 검증(prior가 있으면 전기 대사 포함)과 목차. */
+    complete(srcName, now, prior) {
+      const notes = this.noteList;
       if (this.checkWs) {
-        const tables = [].concat(...this.writers.map((w) => w.tables));
-        const paras = [].concat(...this.writers.map((w) => w.paragraphs.map(([r, text]) => ({ sheet: w.ws.name, r, text }))));
-        const res = HOST.DSDChecks.run({ tables, notes, paras, ws: this.checkWs, styles: STYLES });
+        const args = { tables: this.tables, notes, paras: this.paras, ws: this.checkWs, styles: STYLES };
+        if (prior) Object.assign(args, { self: this.snapshot(srcName), prior });
+        const res = HOST.DSDChecks.run(args);
         this.checkSummary = res.summary;
         this.checkCounts = res.counts;
         this.checkFindings = res.findings;
+        this.priorResult = res.prior || null;
+        if (res.prior) this.checkSummary += ` · 전기 대사 차이 ${res.prior.counts["차이"]}`;
       }
       this.buildToc(srcName, notes, now);
       return notes.length;
+    }
+
+    run(srcName, now) {
+      this.prepare();
+      return this.complete(srcName, now, null);
     }
   }
 
@@ -496,8 +530,8 @@
     return zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
   }
 
-  async function convert(arrayBuffer, srcName, deps) {
-    const { JSZip, ExcelJS, DOMParser } = deps;
+  /** .dsd 압축을 풀어 contents.xml 글자를 꺼낸다. */
+  async function readXml(arrayBuffer, JSZip) {
     let zip;
     try {
       zip = await JSZip.loadAsync(arrayBuffer);
@@ -506,15 +540,152 @@
     }
     const entry = Object.values(zip.files).find((f) => f.name.toLowerCase() === "contents.xml");
     if (!entry) throw new Error("contents.xml이 없습니다. DART 편집기 파일이 맞는지 확인하세요.");
-    const text = decodeXml(await entry.async("uint8array"));
-    const doc = new DOMParser().parseFromString(text, "application/xml");
-    if (doc.getElementsByTagName("parsererror").length) throw new Error("본문(XML)을 읽지 못했습니다.");
-    const conv = new Converter(doc.documentElement, ExcelJS);
-    const notes = conv.run(srcName, deps.now || new Date());
-    const raw = await conv.wb.xlsx.writeBuffer();
-    const data = await fixInternalLinks(raw, JSZip);
-    return { data, sheets: conv.wb.worksheets.map((w) => w.name), notes, checks: conv.checkCounts || null, findings: conv.checkFindings || [] };
+    return decodeXml(await entry.async("uint8array"));
   }
 
-  root.DSDCore = { convert, _internal: { rawText, toValue, sheetNameOf, parseUnit, FS_NAME_RE } };
+  // ------------------------------------------------------------ 문서 정보·짝짓기(전기 대사)
+  const unent = (s) => s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (m, e) => {
+    if (e[0] === "#") return String.fromCodePoint(e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10));
+    return { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" }[e.toLowerCase()];
+  });
+  /** 회사 이름 비교용: 공백·'주식회사'·'(주)'·기호를 뺀다. */
+  const companyKey = (s) => (s || "").replace(/\s+/g, "").replace(/주식회사|유한회사|\(주\)|\(유\)|㈜|\(株\)|株式會社/g, "")
+    .replace(/[^\p{L}\p{N}]/gu, "").toLowerCase();
+
+  /** 회사 이름(표지 첫 줄, 없으면 문서 머리), 문서 종류, 당기 기간(표지의 숨은 기간 값), 기수. */
+  function docInfo(text) {
+    const dn = /<DOCUMENT-NAME\b([^>]*)>([^<]*)</.exec(text);
+    const docCode = dn ? ((/ACODE="([^"]*)"/.exec(dn[1]) || [])[1] || "") : "";
+    const docName = dn ? unent(dn[2]).replace(/\s+/g, "") : "";
+    const cn = /<COMPANY-NAME\b[^>]*>([^<]*)</.exec(text);
+    const headName = cn ? unent(cn[1]).trim() : "";
+    const cover = /<COVER\b[^>]*>([\s\S]*?)<\/COVER>/.exec(text);
+    let coverName = "", term = null;
+    if (cover) {
+      const ps = cover[1].match(/<P\b[^>]*>[\s\S]*?<\/P>/g) || [];
+      for (const p of ps) {
+        const t = unent(p.replace(/<[^>]+>/g, "")).replace(/&cr;/g, " ").replace(/\s+/g, " ").trim();
+        if (t) { coverName = t; break; }
+      }
+      const tm = /제\s*(\d+)\s*(?:\(\s*당\s*\))?\s*기/.exec(unent(cover[1].replace(/<[^>]+>/g, " ")));
+      if (tm) term = +tm[1];
+    }
+    // 표지 글자의 '2025년 01월 01일 부터 / 2025년 12월 31일 까지'(숨은 기간 값이 없는 파일용)
+    const coverDate = (word) => {
+      if (!cover) return "";
+      const t = unent(cover[1].replace(/<[^>]+>/g, " ")).replace(/\s+/g, "");
+      const m = new RegExp(`(\\d{4})년(\\d{1,2})월(\\d{1,2})일${word}`).exec(t);
+      return m ? m[1] + m[2].padStart(2, "0") + m[3].padStart(2, "0") : "";
+    };
+    const unitVal = (kind) => {
+      const m = new RegExp(`<[^>]*\\bAUNIT="${kind}"[^>]*>`).exec(text);
+      const v = m && /AUNITVALUE="(\d{8})"/.exec(m[0]);
+      return v ? v[1] : coverDate(kind === "PERIODFROM" ? "부터" : "까지");
+    };
+    // 표지 첫 줄이 회사 이름이 아니면(서식 안내 등) 문서 머리의 회사 이름을 쓴다
+    const company = coverName && !/재\s*무\s*제\s*표|감\s*사\s*보\s*고\s*서|별첨/.test(coverName) ? coverName : headName;
+    // 이름을 바꾼 회사: '새이름 주식회사 (구, 옛이름 주식회사)' → 옛 이름으로도 짝짓는다
+    const OLD_RE = /[(（]\s*(?:구|舊)\s*[,，.:]?\s*([^)）]+)[)）]/;
+    const old = OLD_RE.exec(company);
+    return { company, key: companyKey(company.replace(OLD_RE, "")), oldKey: old ? companyKey(old[1]) : null,
+             docCode, docName, from: unitVal("PERIODFROM"), to: unitVal("PERIODTO"), term };
+  }
+
+  /** 짝짓기 전 가벼운 읽기: 압축을 풀고 문서 정보만 본다. */
+  async function scan(arrayBuffer, deps) {
+    const text = await readXml(arrayBuffer, deps.JSZip);
+    return { text, info: docInfo(text) };
+  }
+
+  const ymdUTC = (s) => Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
+  /** 감사보고서 묶음에서 '작년 보고서'를 찾는다. 같은 회사(올해 표지의 '구 이름' 포함)·같은 문서 종류이고 당기말이 정확히 1년 앞(±3일)인 것.
+   *  반기·분기 검토보고서는 전기말 칸이 작년 반기 보고서와 기준일이 달라 짝짓지 않는다.
+   *  → 파일마다 {prior: 작년 파일 번호|null, note: 짝을 못 지은 이유|null} */
+  function pairUp(infos) {
+    const ok = (x) => x && x.key && /^\d{8}$/.test(x.to) && !/반기|분기/.test(x.docName);
+    return infos.map((d, i) => {
+      if (!ok(d)) return { prior: null, note: null };
+      const want = ymdUTC(String(+d.to.slice(0, 4) - 1) + d.to.slice(4));
+      const cands = [];
+      infos.forEach((p, j) => {
+        const same = p.key === d.key || (d.oldKey && p.key === d.oldKey);
+        if (j === i || !ok(p) || !same || p.docCode !== d.docCode || p.docName !== d.docName) return;
+        if (Math.abs(ymdUTC(p.to) - want) <= 3 * 86400000) cands.push(j);
+      });
+      if (cands.length === 1) return { prior: cands[0], note: null };
+      return { prior: null, note: cands.length > 1 ? `같은 회사의 작년 보고서가 ${cands.length}개라 어느 것과 비교할지 정할 수 없어 전기 대사를 하지 않았습니다. 작년 파일을 하나만 함께 넣으세요.` : null };
+    });
+  }
+
+  /** 1단계 변환(본문 쓰기). 작년 보고서로 쓰일 때 필요한 표 정보(snap)도 만든다. */
+  async function openText(text, srcName, deps) {
+    const doc = new deps.DOMParser().parseFromString(text, "application/xml");
+    if (doc.getElementsByTagName("parsererror").length) throw new Error("본문(XML)을 읽지 못했습니다.");
+    const conv = new Converter(doc.documentElement, deps.ExcelJS);
+    conv.info = docInfo(text);
+    conv.prepare();
+    return { conv, srcName, info: conv.info, snap: conv.snapshot(srcName) };
+  }
+
+  /** 2단계 변환(검증·목차·엑셀 저장). prior: 작년 보고서의 snap(없으면 전기 대사 안 함). */
+  async function build(d, prior, deps) {
+    const conv = d.conv;
+    const notes = conv.complete(d.srcName, deps.now || new Date(), prior);
+    const raw = await conv.wb.xlsx.writeBuffer();
+    const data = await fixInternalLinks(raw, deps.JSZip);
+    d.conv = null;   // 워크북은 더 쓰지 않는다
+    return { data, sheets: conv.wb.worksheets.map((w) => w.name), notes, checks: conv.checkCounts || null, findings: conv.checkFindings || [],
+             prior: conv.priorResult || null, info: conv.info };
+  }
+
+  /** 파일 하나 변환(전기 대사 없음). */
+  async function convert(arrayBuffer, srcName, deps) {
+    const text = await readXml(arrayBuffer, deps.JSZip);
+    return build(await openText(text, srcName, deps), null, deps);
+  }
+
+  /** 한 번에 넣은 여러 파일을 차례로 변환한다. 같은 회사의 작년 보고서가 묶음 안에 있으면 전기 대사를 함께 한다.
+   *  items: [{name, read: async () => ArrayBuffer}]
+   *  hooks.onStart(i), hooks.onDone(i, 결과|null, 오류|null): 둘 다 await한다. 결과에 pairNote(짝 안내), priorName이 붙는다. */
+  async function convertAll(items, deps, hooks = {}) {
+    const texts = [], infos = [], errs = [];
+    for (const it of items) {
+      try { const s = await scan(await it.read(), deps); texts.push(s.text); infos.push(s.info); errs.push(null); }
+      catch (e) { texts.push(null); infos.push(null); errs.push(e); }
+    }
+    const pairs = pairUp(infos);
+    const need = new Set(pairs.map((p) => p.prior).filter((j) => j !== null));
+    const opened = new Map(), snaps = new Map();
+    const snapOf = async (j) => {
+      if (snaps.has(j)) return snaps.get(j);
+      let d = opened.get(j);
+      if (!d) {
+        try { d = await openText(texts[j], items[j].name, deps); opened.set(j, d); }
+        catch (e) { snaps.set(j, null); return null; }
+      }
+      snaps.set(j, d.snap);
+      return d.snap;
+    };
+    for (let i = 0; i < items.length; i++) {
+      if (hooks.onStart) await hooks.onStart(i);
+      let res = null, err = errs[i];
+      if (!err) {
+        try {
+          const d = opened.get(i) || await openText(texts[i], items[i].name, deps);
+          opened.delete(i);
+          if (need.has(i)) snaps.set(i, d.snap);
+          const p = pairs[i];
+          const prior = p.prior !== null ? await snapOf(p.prior) : null;
+          res = await build(d, prior, deps);
+          res.priorName = prior ? prior.name : null;
+          res.pairNote = p.note || (p.prior !== null && !prior ? `작년 보고서(${items[p.prior].name})를 읽지 못해 전기 대사를 하지 않았습니다.` : null);
+        } catch (e) { err = e; }
+      }
+      texts[i] = null;   // 다 쓴 본문은 놓는다(작년 보고서로 쓰일 표 정보는 snap에 남음)
+      if (hooks.onDone) await hooks.onDone(i, res, err);
+    }
+  }
+
+  root.DSDCore = { convert, convertAll, scan, pairUp, openText, build,
+                   _internal: { rawText, toValue, sheetNameOf, parseUnit, FS_NAME_RE, docInfo, companyKey } };
 })(typeof window !== "undefined" ? window : globalThis);

@@ -17,7 +17,8 @@ const html = read("template.html")
   .replace("/*__EXCELJS__*/", () => safe(strip(read("lib/exceljs.min.js"))))
   .replace("/*__CORE__*/", () => safe(read("dsd-core.js") + "\n" + read("dsd-checks.js")))
   .replace("__BUILD_DATE__", stamp)
-  .replace("__SAMPLE_B64__", () => fs.readFileSync(path.join(here, "sample", "샘플전자_감사보고서_2025_예시.dsd")).toString("base64"));   // [예시 파일로 해 보기]용 가상 회사 감사보고서
+  .replace("__SAMPLE_B64__", () => fs.readFileSync(path.join(here, "sample", "샘플전자_감사보고서_2025_예시.dsd")).toString("base64"))   // [예시 파일로 해 보기]용 가상 회사 감사보고서
+  .replace("__SAMPLE24_B64__", () => fs.readFileSync(path.join(here, "sample", "샘플전자_감사보고서_2024_예시.dsd")).toString("base64"));   // [예시로 전기 대사 해 보기]용 같은 회사 작년 보고서
 
 const out = path.join(here, "..", "DSD엑셀변환.html");
 fs.writeFileSync(out, html, "utf8");
